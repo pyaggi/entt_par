@@ -263,7 +263,13 @@ public:
     void each(Func func) const {
         std::for_each(begin(), end(), func);
     }
+#ifdef ENTT_GNU_PARALLEL
 
+    template<typename Func>
+    void each_par(Func func) const {
+        __gnu_parallel::for_each(begin(), end(), func);
+    }
+#endif
 private:
     std::vector<const sparse_set<Entity> *> pools;
 };

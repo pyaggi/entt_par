@@ -7,6 +7,9 @@
 #include <tuple>
 #include <utility>
 #include <algorithm>
+#ifdef ENTT_GNU_PARALLEL
+#include <parallel/algorithm>
+#endif
 #include <type_traits>
 #include "../config/config.h"
 #include "entt_traits.hpp"
@@ -158,7 +161,27 @@ class basic_view {
         ((std::get<pool_type<Component> *>(pools) == view ? nullptr : (other[pos++] = std::get<pool_type<Component> *>(pools))), ...);
         return other;
     }
+#ifdef ENTT_GNU_PARALLEL
 
+    template<typename Comp, typename... Other, typename Func>
+    void each_par(std::tuple<Comp *, Other *...> pack, Func func) const {
+        const auto end = std::get<pool_type<Comp> *>(pools)->sparse_set<Entity>::end();
+        auto begin = std::get<pool_type<Comp> *>(pools)->sparse_set<Entity>::begin();
+        auto raw = std::get<pool_type<Comp> *>(pools)->begin();
+
+        __gnu_parallel::for_each(begin, end, [&pack, &func, &raw, this](const auto entity) {
+            std::get<component_type<Comp> *>(pack) = &*raw++;
+
+            if(((std::get<component_type<Other> *>(pack) = std::get<pool_type<Other> *>(pools)->try_get(entity)) && ...)) {
+                if constexpr(std::is_invocable_v<Func, std::add_lvalue_reference_t<Component>...>) {
+                    func(*std::get<component_type<Component> *>(pack)...);
+                } else {
+                    func(entity, *std::get<component_type<Component> *>(pack)...);
+                }
+            }
+        });
+    }
+#endif
     template<typename Comp, typename... Other, typename Func>
     void each(std::tuple<Comp *, Other *...> pack, Func func) const {
         const auto end = std::get<pool_type<Comp> *>(pools)->sparse_set<Entity>::end();
@@ -373,6 +396,13 @@ public:
      * @tparam Func Type of the function object to invoke.
      * @param func A valid function object.
      */
+#ifdef ENTT_GNU_PARALLEL
+    template<typename Func>
+    inline void each_par(Func func) const {
+        const auto *view = candidate();
+        ((std::get<pool_type<Component> *>(pools) == view ? each_par<Component>(std::move(func)) : void()), ...);
+    }
+#endif
     template<typename Func>
     inline void each(Func func) const {
         const auto *view = candidate();
@@ -404,6 +434,12 @@ public:
      * @tparam Func Type of the function object to invoke.
      * @param func A valid function object.
      */
+#ifdef ENTT_GNU_PARALLEL
+    template<typename Comp, typename Func>
+    inline void each_par(Func func) const {
+        each_par(std::tuple_cat(std::tuple<Comp *>{}, std::conditional_t<std::is_same_v<Comp *, Component *>, std::tuple<>, std::tuple<Component *>>{}...), std::move(func));
+    }
+#endif
     template<typename Comp, typename Func>
     inline void each(Func func) const {
         each(std::tuple_cat(std::tuple<Comp *>{}, std::conditional_t<std::is_same_v<Comp *, Component *>, std::tuple<>, std::tuple<Component *>>{}...), std::move(func));
@@ -625,6 +661,18 @@ public:
      * @tparam Func Type of the function object to invoke.
      * @param func A valid function object.
      */
+#ifdef ENTT_GNU_PARALLEL
+    template<typename Func>
+    void each_par(Func func) const {
+        if constexpr(std::is_invocable_v<Func, std::add_lvalue_reference_t<Component>>) {
+            __gnu_parallel::for_each(pool->begin(), pool->end(), std::move(func));
+        } else {
+            __gnu_parallel::for_each(pool->sparse_set<Entity>::begin(), pool->sparse_set<Entity>::end(), [&func, raw = pool->begin()](const auto entt) mutable {
+                func(entt, *(raw++));
+            });
+        }
+    }
+#endif
     template<typename Func>
     void each(Func func) const {
         if constexpr(std::is_invocable_v<Func, std::add_lvalue_reference_t<Component>>) {

@@ -444,7 +444,21 @@ public:
 
         direct.insert(direct.end(), first, last);
     }
+#ifdef ENTT_GNU_PARALLEL
 
+    template<typename It>
+    void batch_par(It first, It last) {
+        __gnu_parallel::for_each(first, last, [next = entity_type(direct.size()), this](const auto entt) mutable {
+            ENTT_ASSERT(!has(entt));
+            auto [page, offset] = index(entt);
+            assure(page);
+            reverse[page].first[offset] = next++;
+            reverse[page].second++;
+        });
+
+        direct.insert(direct.end(), first, last);
+    }
+#endif
     /**
      * @brief Removes an entity from a sparse set.
      *
@@ -1033,7 +1047,22 @@ public:
             return instances.data() + skip;
         }
     }
-
+#ifdef ENTT_GNU_PARALLEL
+    template<typename It>
+    object_type * batch_par(It first, It last) {
+        if constexpr(std::is_empty_v<object_type>) {
+            underlying_type::batch_par(first, last);
+            return &instances;
+        } else {
+            static_assert(std::is_default_constructible_v<object_type>);
+            const auto skip = instances.size();
+            instances.insert(instances.end(), last-first, {});
+            // entity goes after component in case constructor throws
+            underlying_type::batch_par(first, last);
+            return instances.data() + skip;
+        }
+    }
+#endif
     /**
      * @brief Removes an entity from a sparse set and destroies its object.
      *

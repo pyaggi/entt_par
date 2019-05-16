@@ -731,7 +731,33 @@ public:
             }
         }
     }
+#ifdef ENTT_GNU_PARALLEL
 
+    template<typename Compare, typename Sort = std_sort_par, typename... Args>
+    void sort_par(Compare compare, Sort algo = Sort{}, Args &&... args) {
+        std::vector<size_type> copy(*length);
+        std::iota(copy.begin(), copy.end(), 0);
+
+        algo(copy.rbegin(), copy.rend(), [compare = std::move(compare), data = data()](const auto lhs, const auto rhs) {
+            return compare(data[lhs], data[rhs]);
+        }, std::forward<Args>(args)...);
+
+        for(size_type pos = 0, last = copy.size(); pos < last; ++pos) {
+            auto curr = pos;
+            auto next = copy[curr];
+
+            while(curr != next) {
+                const auto lhs = copy[curr];
+                const auto rhs = copy[next];
+                (std::swap(std::get<pool_type<Owned> *>(pools)->raw()[lhs], std::get<pool_type<Owned> *>(pools)->raw()[rhs]), ...);
+                (std::get<pool_type<Owned> *>(pools)->swap(lhs, rhs), ...);
+                copy[curr] = curr;
+                curr = next;
+                next = copy[curr];
+            }
+        }
+    }
+#endif
 private:
     const typename basic_registry<Entity>::size_type *length;
     const std::tuple<pool_type<Owned> *..., pool_type<Get> *...> pools;
